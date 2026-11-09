@@ -1,0 +1,1145 @@
+﻿import { useEffect, useState } from 'react'
+import {
+  saveApplicationFile,
+  getApplicationFile,
+  deleteApplicationFile,
+  deleteApplicationFiles,
+} from './utils/fileStorage'
+import './App.css'
+import Login from './components/Login'
+import ApplicationForm from './components/ApplicationForm'
+import KanbanBoard from './components/KanbanBoard'
+import {
+  isLoggedIn,
+  logout,
+  getUsername,
+  createApplication,
+  updateApplication,
+  deleteApplication,
+} from './services/api'
+
+import {
+  toApiApplication,
+  fromApiApplication,
+} from './utils/applicationMapper'
+import {
+  loadAndMigrateApplications,
+} from './services/applicationSync'
+
+
+const applicationStatuses = [
+  'Applied',
+  'Interview',
+  'Offer',
+  'Rejected',
+]
+
+function getTodayISODate() {
+  const today = new Date()
+
+  const localToday = new Date(
+    today.getTime() - today.getTimezoneOffset() * 60000
+  )
+
+  return localToday.toISOString().slice(0, 10)
+}
+
+function formatDateToISO(date) {
+  const localDate = new Date(
+    date.getTime() - date.getTimezoneOffset() * 60000
+  )
+
+  return localDate.toISOString().slice(0, 10)
+}
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024
+
+function validateFile(file, allowedExtensions) {
+  const extension = file.name
+    .split('.')
+    .pop()
+    .toLowerCase()
+
+  if (!allowedExtensions.includes(extension)) {
+    return 'Invalid file format.'
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    return 'File size must not exceed 5 MB.'
+  }
+
+  return ''
+}
+
+function App() {
+    const [authenticated, setAuthenticated] = useState(
+    () => isLoggedIn() && Boolean(getUsername())
+  )
+
+  const [currentUsername, setCurrentUsername] = useState(getUsername)
+
+  const [applications, setApplications] = useState(() => {
+  const username = getUsername()
+
+    if (!isLoggedIn() || !username) {
+      return []
+    }
+
+    try {
+      const savedApplications = localStorage.getItem(
+        `hiretrack-applications-${username}`
+      )
+
+      return savedApplications ? JSON.parse(savedApplications) : []
+    } catch {
+      return []
+    }
+  })
+
+  const [isDataReady, setIsDataReady] = useState(false)
+  const [syncError, setSyncError] = useState('')
+  const [syncAttempt, setSyncAttempt] = useState(0)
+
+  useEffect(() => {
+    if (!authenticated || !currentUsername || !isDataReady) {
+      return
+    }
+
+    localStorage.setItem(
+      `hiretrack-applications-${currentUsername}`,
+      JSON.stringify(applications)
+    )
+  }, [
+    applications,
+    authenticated,
+    currentUsername,
+    isDataReady,
+  ])
+    // Backend Fetch and LocalStorage Migration
+  useEffect(() => {
+    if (!authenticated || !currentUsername) {
+      return
+    }
+
+    let isActive = true
+
+    async function syncApplications() {
+      setIsDataReady(false)
+      setSyncError('')
+
+      try {
+        const savedData = localStorage.getItem(
+          `hiretrack-applications-${currentUsername}`
+        )
+
+        let localApplications = savedData
+          ? JSON.parse(savedData)
+          : []
+
+        if (!Array.isArray(localApplications)) {
+          throw new Error('Invalid local application data.')
+        }
+
+        const backendApplications =
+          await loadAndMigrateApplications(localApplications)
+
+        if (!isActive) return
+
+        setApplications(backendApplications)
+        setIsDataReady(true)
+
+      } catch (error) {
+        if (!isActive) return
+
+        console.error('Application sync failed:', error)
+
+        setSyncError(
+          error.message || 'Unable to synchronize applications.'
+        )
+      }
+    }
+
+    syncApplications()
+
+    return () => {
+      isActive = false
+    }
+  }, [authenticated, currentUsername, syncAttempt])
+  const [calendarMonth, setCalendarMonth] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  )
+
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(
+  getTodayISODate()
+  )
+
+  const [notificationPermission, setNotificationPermission] = useState(
+  () =>
+    typeof window !== 'undefined' && 'Notification' in window
+      ? Notification.permission
+      : 'unsupported'
+  )
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  // Actual files selected by the user
+  const [selectedResumeFile, setSelectedResumeFile] = useState(null)
+  const [selectedCoverLetterFile, setSelectedCoverLetterFile] = useState(null)
+  const [selectedOtherFiles, setSelectedOtherFiles] = useState([])
+  const [pendingAttachmentDeletes, setPendingAttachmentDeletes] = useState([])
+  const [fileError, setFileError] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [form, setForm] = useState({
+  company: '',
+  role: '',
+  jobUrl: '',
+  jobLocation: '',
+  jobType: 'Full-time',
+  salaryRange: '',
+  applicationSource: 'LinkedIn',
+  candidateName: '',
+  candidateEmail: '',
+  candidatePhone: '',
+  resumeVersion: 'Version 1',
+  resumeName: '',
+  resumeSize: '',
+  coverLetterName: '',
+  coverLetterSize: '',
+  otherAttachments: [],
+  status: 'Applied',
+  date: getTodayISODate(),
+  followUpDate: '',
+  notes: '',
+})
+function handleEdit(application) {
+  setPendingAttachmentDeletes([])
+  setSelectedResumeFile(null)
+  setSelectedCoverLetterFile(null)
+  setSelectedOtherFiles([])
+  setFileError('')
+  setEditingId(application.id)
+
+  setForm({
+    company: application.company,
+    role: application.role,
+    jobUrl: application.jobUrl || '',
+    jobLocation: application.jobLocation || '',
+    jobType: application.jobType || 'Full-time',
+    salaryRange: application.salaryRange || '',
+    applicationSource: application.applicationSource || 'LinkedIn',
+    candidateName: application.candidateName || '',
+    candidateEmail: application.candidateEmail || '',
+    candidatePhone: application.candidatePhone || '',
+    resumeVersion: application.resumeVersion || 'Version 1',
+    resumeName: application.resumeName || '',
+    resumeSize: application.resumeSize || '',
+    coverLetterName: application.coverLetterName || '',
+    coverLetterSize: application.coverLetterSize || '',
+    otherAttachments: application.otherAttachments || [],
+    status: application.status,
+    date: application.date
+    ? new Date(application.date).toISOString().slice(0, 10)
+    : getTodayISODate(),
+    followUpDate: application.followUpDate || '',
+    notes: application.notes || '',
+  })
+
+  setShowForm(true)
+}
+function handleChange(event) {
+    const { name, value } = event.target
+    setForm((previous) => ({ ...previous, [name]: value }))
+  }
+
+async function handleDownloadFile(fileId) {
+  try {
+    const record = await getApplicationFile(fileId)
+
+    if (!record || !record.file) {
+      setFileError('File not found. Please upload it again.')
+      return
+    }
+
+    const objectUrl = URL.createObjectURL(record.file)
+
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = record.name
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    setTimeout(() => {
+      URL.revokeObjectURL(objectUrl)
+    }, 1000)
+
+    setFileError('')
+  } catch (error) {
+    console.error('File download error:', error)
+    setFileError('Unable to download file. Please try again.')
+  }
+}
+
+
+function handleRemoveAttachment(attachment) {
+  const isNewFile = selectedOtherFiles.some(
+    (file) => file.id === attachment.id
+  )
+
+  // Mark only previously saved files for deletion.
+  if (editingId !== null && !isNewFile) {
+    setPendingAttachmentDeletes((previous) =>
+      previous.includes(attachment.id)
+        ? previous
+        : [...previous, attachment.id]
+    )
+  }
+
+  setSelectedOtherFiles((previous) =>
+    previous.filter((file) => file.id !== attachment.id)
+  )
+
+  setForm((previousForm) => ({
+    ...previousForm,
+    otherAttachments: previousForm.otherAttachments.filter(
+      (item) => item.id !== attachment.id
+    ),
+  }))
+
+  setFileError('')
+}
+
+
+
+async function handleSubmit(event) {
+  event.preventDefault()
+
+  if (isSaving) return
+
+  setIsSaving(true)
+  setFileError('')
+
+  const applicationId = editingId !== null
+    ? editingId
+    : Date.now()
+
+  const existingApplication = editingId !== null
+    ? applications.find(
+        (item) => String(item.id) === String(editingId)
+      )
+    : null
+
+  const applicationData = {
+    company: form.company.trim(),
+    role: form.role.trim(),
+    date: new Date(`${form.date}T12:00:00`).toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric',
+    }),
+    status: form.status,
+    jobUrl: form.jobUrl.trim(),
+    jobLocation: form.jobLocation.trim(),
+    jobType: form.jobType,
+    salaryRange: form.salaryRange.trim(),
+    applicationSource: form.applicationSource,
+    candidateName: form.candidateName.trim(),
+    candidateEmail: form.candidateEmail.trim(),
+    candidatePhone: form.candidatePhone.trim(),
+    resumeVersion: form.resumeVersion,
+    resumeName: selectedResumeFile?.name || form.resumeName.trim(),
+    resumeSize: selectedResumeFile?.size || form.resumeSize,
+    coverLetterName: selectedCoverLetterFile?.name || form.coverLetterName.trim(),
+    coverLetterSize: selectedCoverLetterFile?.size || form.coverLetterSize,
+    otherAttachments: form.otherAttachments,
+    followUpDate: form.followUpDate,
+    notes: form.notes.trim(),
+  }
+
+  try {
+    if (editingId !== null && !existingApplication?.backendId) {
+      throw new Error('Backend application ID not found. Please reload and try again.')
+    }
+
+    const apiData = toApiApplication({
+      ...applicationData,
+      id: applicationId,
+      legacyId: existingApplication?.legacyId ?? applicationId,
+    })
+
+    // Save application to Django Backend
+    const serverRecord = editingId !== null
+      ? await updateApplication(existingApplication.backendId, apiData)
+      : await createApplication(apiData)
+
+    const mappedApplication = fromApiApplication(serverRecord)
+
+    const savedApplication = {
+      ...mappedApplication,
+      ...applicationData,
+      id: applicationId,
+      backendId: serverRecord.id,
+      legacyId: serverRecord.legacy_id || String(applicationId),
+    }
+
+    // Update React state after successful API response
+    if (editingId !== null) {
+      setApplications((previous) =>
+        previous.map((item) =>
+          String(item.id) === String(editingId)
+            ? savedApplication
+            : item
+        )
+      )
+    } else {
+      setApplications((previous) => [
+        savedApplication,
+        ...previous,
+      ])
+    }
+
+    // Save selected files locally in IndexedDB
+    try {
+      if (selectedResumeFile) {
+        await saveApplicationFile({
+          id: `${applicationId}:resume`,
+          applicationId,
+          type: 'resume',
+          file: selectedResumeFile,
+          name: selectedResumeFile.name,
+          size: selectedResumeFile.size,
+          mimeType: selectedResumeFile.type,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+
+      if (selectedCoverLetterFile) {
+        await saveApplicationFile({
+          id: `${applicationId}:coverLetter`,
+          applicationId,
+          type: 'coverLetter',
+          file: selectedCoverLetterFile,
+          name: selectedCoverLetterFile.name,
+          size: selectedCoverLetterFile.size,
+          mimeType: selectedCoverLetterFile.type,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+
+      for (const attachment of selectedOtherFiles) {
+        await saveApplicationFile({
+          id: `${applicationId}:attachment:${attachment.id}`,
+          applicationId,
+          type: 'attachment',
+          file: attachment.file,
+          name: attachment.file.name,
+          size: attachment.file.size,
+          mimeType: attachment.file.type,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+      // Delete previously saved attachments removed during editing
+      for (const attachmentId of pendingAttachmentDeletes) {
+        await deleteApplicationFile(
+          `${applicationId}:attachment:${attachmentId}`
+        )
+      }
+
+        // Clear pending deletion list after successful cleanup
+      setPendingAttachmentDeletes([])
+    } catch (fileError) {
+      console.error('Local file storage error:', fileError)
+      setFileError(
+        'Application saved to server, but a local file could not be saved.'
+      )
+    }
+
+    // Reset form
+    setEditingId(null)
+
+    setForm({
+      company: '',
+      role: '',
+      jobUrl: '',
+      jobLocation: '',
+      jobType: 'Full-time',
+      salaryRange: '',
+      applicationSource: 'LinkedIn',
+      candidateName: '',
+      candidateEmail: '',
+      candidatePhone: '',
+      resumeVersion: 'Version 1',
+      resumeName: '',
+      resumeSize: '',
+      coverLetterName: '',
+      coverLetterSize: '',
+      otherAttachments: [],
+      status: 'Applied',
+      date: getTodayISODate(),
+      followUpDate: '',
+      notes: '',
+    })
+
+    setSelectedResumeFile(null)
+    setSelectedCoverLetterFile(null)
+    setSelectedOtherFiles([])
+    setShowForm(false)
+
+  } catch (error) {
+    console.error('Application API error:', error)
+    setFileError(error.message || 'Unable to save application. Please try again.')
+  } finally {
+    setIsSaving(false)
+  }
+}
+
+
+async function handleDelete(id) {
+  const confirmDelete = window.confirm(
+    'Are you sure you want to delete this application?'
+  )
+
+  if (!confirmDelete) return
+
+  const application = applications.find(
+    (item) => String(item.id) === String(id)
+  )
+
+  if (!application?.backendId) {
+    setFileError('Backend application ID not found. Please reload and try again.')
+    return
+  }
+
+  try {
+    // First delete from Django Backend
+    await deleteApplication(application.backendId)
+
+    // Remove from React state after successful API deletion
+    setApplications((previous) =>
+      previous.filter(
+        (item) => String(item.id) !== String(id)
+      )
+    )
+
+    // Then delete local IndexedDB files
+    try {
+      await deleteApplicationFiles(id)
+      setFileError('')
+    } catch (fileError) {
+      console.error('Local file deletion error:', fileError)
+      setFileError(
+        'Application deleted from server, but some local files could not be deleted.'
+      )
+    }
+
+  } catch (error) {
+    console.error('Application delete error:', error)
+    setFileError(
+      error.message || 'Unable to delete application. Please try again.'
+    )
+  }
+}
+
+
+function handleCancel() {
+  setShowForm(false)
+  setEditingId(null)
+  setPendingAttachmentDeletes([])
+  setSelectedResumeFile(null)
+  setSelectedCoverLetterFile(null)
+  setSelectedOtherFiles([])
+  setFileError('')
+}
+
+
+async function handleDrop(event, nextStatus) {
+  event.preventDefault()
+
+  const draggedId = event.dataTransfer.getData('text/plain')
+  if (!draggedId) return
+
+  const application = applications.find(
+    (item) => String(item.id) === draggedId
+  )
+
+  event.dataTransfer.clearData()
+
+  if (!application || application.status === nextStatus) return
+
+  if (!application.backendId) {
+    setFileError('Backend application ID not found. Please reload and try again.')
+    return
+  }
+
+  try {
+    // Save new status to Django Backend
+    await updateApplication(application.backendId, {
+      status: nextStatus,
+    })
+
+    // Update React state after successful API response
+    setApplications((previous) =>
+      previous.map((item) =>
+        String(item.id) === draggedId
+          ? { ...item, status: nextStatus }
+          : item
+      )
+    )
+
+    setFileError('')
+  } catch (error) {
+    console.error('Drag and drop status update error:', error)
+    setFileError(
+      error.message || 'Unable to update application status.'
+    )
+  }
+}
+
+
+
+async function handleStatusChange(id, nextStatus) {
+  const application = applications.find(
+    (item) => String(item.id) === String(id)
+  )
+
+  if (!application) return
+
+  if (!application.backendId) {
+    setFileError('Backend application ID not found. Please reload and try again.')
+    return
+  }
+
+  try {
+    // Save status to Django Backend
+    await updateApplication(application.backendId, {
+      status: nextStatus,
+    })
+
+    // Update React state after successful API response
+    setApplications((previous) =>
+      previous.map((item) =>
+        String(item.id) === String(id)
+          ? { ...item, status: nextStatus }
+          : item
+      )
+    )
+
+    setFileError('')
+  } catch (error) {
+    console.error('Status update error:', error)
+    setFileError(
+      error.message || 'Unable to update application status.'
+    )
+  }
+}
+
+
+  const interviewCount = applications.filter((item) => item.status === 'Interview').length
+  const offerCount = applications.filter((item) => item.status === 'Offer').length
+  const localToday = getTodayISODate()
+
+  const upcomingFollowUps = applications.filter(
+  (item) =>
+    item.followUpDate &&
+    item.followUpDate >= localToday
+  )
+
+  const followUpCount = upcomingFollowUps.length
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+  const firstDay = calendarMonth.getDay()
+
+  const date = new Date(
+    calendarMonth.getFullYear(),
+    calendarMonth.getMonth(),
+    index - firstDay + 1
+  )
+
+  const dateISO = formatDateToISO(date)
+
+  return {
+    date,
+    dateISO,
+    isCurrentMonth: date.getMonth() === calendarMonth.getMonth(),
+    isToday: dateISO === localToday,
+    followUps: applications.filter(
+      (item) => item.followUpDate === dateISO
+    ),
+  }
+})
+
+  const selectedDateFollowUps = applications.filter(
+  (item) => item.followUpDate === selectedCalendarDate
+  )
+
+function handlePreviousMonth() {
+  setCalendarMonth(
+    (previous) =>
+      new Date(
+        previous.getFullYear(),
+        previous.getMonth() - 1,
+        1
+      )
+  )
+}
+
+function handleNextMonth() {
+  setCalendarMonth(
+    (previous) =>
+      new Date(
+        previous.getFullYear(),
+        previous.getMonth() + 1,
+        1
+      )
+  )
+}
+
+async function handleEnableNotifications() {
+  if (!('Notification' in window)) {
+    setNotificationPermission('unsupported')
+    return
+  }
+
+  const permission = await Notification.requestPermission()
+
+  setNotificationPermission(permission)
+}
+  useEffect(() => {
+  if (
+    notificationPermission !== 'granted' ||
+    !('Notification' in window)
+  ) {
+    return undefined
+  }
+
+  function checkDueFollowUps() {
+    const today = getTodayISODate()
+
+    const dueFollowUps = applications.filter(
+      (item) => item.followUpDate === today
+    )
+
+    dueFollowUps.forEach((item) => {
+      const notificationKey =
+        `hiretrack-notified-${today}-${item.id}`
+
+      if (localStorage.getItem(notificationKey)) {
+        return
+      }
+
+      new Notification('HireTrack Follow-up Reminder', {
+        body: `Today: Follow up with ${item.company} regarding ${item.role}.`,
+      })
+
+      localStorage.setItem(notificationKey, 'true')
+    })
+  }
+
+  checkDueFollowUps()
+
+  const intervalId = window.setInterval(
+    checkDueFollowUps,
+    60000
+  )
+
+  return () => window.clearInterval(intervalId)
+}, [applications, notificationPermission])
+  const handleLoginSuccess = () => {
+    const username = getUsername()
+
+    if (!username) return
+
+    setIsDataReady(false)
+    setSyncError('')
+    setCurrentUsername(username)
+    setAuthenticated(true)
+  }
+
+  const handleLogout = () => {
+    logout()
+
+    setIsDataReady(false)
+    setSyncError('')
+    setSyncAttempt(0)
+
+    setAuthenticated(false)
+    setCurrentUsername('')
+    setApplications([])
+  }
+
+  if (!authenticated) {
+    return <Login onLoginSuccess={handleLoginSuccess} />
+  }
+  if (!isDataReady) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <h2>
+            {syncError
+              ? 'Synchronization Failed'
+              : 'Loading HireTrack...'}
+          </h2>
+
+          {syncError ? (
+            <>
+              <p className="login-error">{syncError}</p>
+
+              <button
+                type="button"
+                onClick={() => setSyncAttempt((previous) => previous + 1)}
+              >
+                Retry Sync
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <p>Loading your applications from the server...</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="app-layout">
+      <aside className="sidebar">
+        <h2 className="brand">HireTrack<span>.</span></h2>
+        <p className="menu-label">WORKSPACE</p>
+        <nav className="navigation">
+          <a className="nav-link active" href="#dashboard">â–¦ Dashboard</a>
+          <a className="nav-link" href="#applications">â–¤ Applications</a>
+          <a className="nav-link" href="#followups">â—· Follow-ups</a>
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="avatar">
+            {currentUsername.charAt(0).toUpperCase()}
+          </div>
+
+          <div className="workspace-info">
+            <strong>{currentUsername}</strong>
+            <p>Job Seeker</p>
+            <button
+              className="logout-button"
+              type="button"
+              onClick={handleLogout}
+            >
+              <span>↪</span> Logout
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="main-content" id="dashboard">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">YOUR CAREER WORKSPACE</p>
+            <h1>Dashboard</h1>
+          </div>
+          <button className="profile-button" type="button">AK</button>
+        </header>
+
+        <section className="welcome">
+          <div>
+            <p className="eyebrow light">CAREER OVERVIEW</p>
+            <h2>Keep your career moving forward.</h2>
+            <p>Track your job applications and never miss a follow-up.</p>
+          </div>
+          <span className="welcome-icon">â†—</span>
+        </section>
+
+        <section className="summary-grid">
+          <article className="summary-card">
+            <p>Total Applications</p>
+            <h2>{applications.length}</h2>
+            <span>All tracked opportunities</span>
+          </article>
+          <article className="summary-card">
+            <p>Interviews</p>
+            <h2>{interviewCount}</h2>
+            <span>Interview stage</span>
+          </article>
+          <article className="summary-card">
+            <p>Offers</p>
+            <h2>{offerCount}</h2>
+            <span>Potential opportunities</span>
+          </article>
+          <article className="summary-card">
+            <p>Follow-ups</p>
+            <h2>{followUpCount}</h2>
+            <span>Need your attention</span>
+          </article>
+        </section>
+
+        <KanbanBoard
+          applications={applications}
+          applicationStatuses={applicationStatuses}
+          handleDrop={handleDrop}
+          handleStatusChange={handleStatusChange}
+          handleEdit={handleEdit}
+          handleDelete={handleDelete}
+        />
+        <section className="content-card" id="applications">
+          <div className="section-heading">
+            <div>
+              <h2>Recent Applications</h2>
+              <p>Keep track of your latest opportunities.</p>
+            </div>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setPendingAttachmentDeletes([])
+                setSelectedResumeFile(null)
+                setSelectedCoverLetterFile(null)
+                setSelectedOtherFiles([])
+                setEditingId(null)
+                setForm({
+                company: '',
+                role: '',
+                jobUrl: '',
+                jobLocation: '',
+                jobType: 'Full-time',
+                salaryRange: '',
+                applicationSource: 'LinkedIn',
+                candidateName: '',
+                candidateEmail: '',
+                candidatePhone: '',
+                resumeVersion: 'Version 1',
+                resumeName: '',
+                resumeSize: '',
+                coverLetterName: '',
+                coverLetterSize: '',
+                otherAttachments: [],
+                status: 'Applied',
+                date: new Date().toISOString().slice(0, 10),
+                followUpDate: '',
+                notes: '',
+                })
+                setShowForm(true)
+              }}
+            >
+              + Add Application
+            </button>
+          </div>
+
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>COMPANY &amp; ROLE</th>
+                  <th>APPLIED DATE</th>
+                  <th>STATUS</th>
+                  <th>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {applications.map((application) => (
+                  <tr key={application.id}>
+                    <td>
+                      <strong>{application.company}</strong>
+                      <span className="role-name">{application.role}</span>
+                    </td>
+                    <td>{application.date}</td>
+                    <td>
+                      <span className={`status ${application.status.toLowerCase()}`}>
+                        {application.status}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => handleEdit(application)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="delete-button"
+                        type="button"
+                        onClick={() => handleDelete(application.id)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        
+        <section className="content-card followup-card" id="followups">
+          <div className="section-heading">
+            <div>
+              <h2>Follow-up Calendar</h2>
+              <p>Track your upcoming employer follow-ups.</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleEnableNotifications}
+              disabled={notificationPermission === 'granted'}
+            >
+              {notificationPermission === 'granted'
+              ? 'Notifications Enabled'
+              : 'Enable Notifications'}
+            </button>
+          </div>
+
+          {notificationPermission === 'denied' && (
+            <p className="empty-message">
+              Notifications are blocked. Allow them in browser settings.
+            </p>
+          )}
+
+          {notificationPermission === 'unsupported' && (
+            <p className="empty-message">
+              This browser does not support notifications.
+            </p>
+          )}
+
+          <div className="calendar-header">
+            <button type="button" onClick={handlePreviousMonth}>
+              Previous
+            </button>
+
+            <h3>
+              {calendarMonth.toLocaleDateString('en-US', {
+                month: 'long',
+                year: 'numeric',
+              })}
+            </h3>
+
+            <button type="button" onClick={handleNextMonth}>
+              Next
+            </button>
+          </div>
+
+          <div className="calendar-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(
+              (day) => (
+                <div className="calendar-weekday" key={day}>
+                  {day}
+                </div>
+              )
+            )}
+
+            {calendarDays.map((day) => (
+              <button
+                type="button"
+                key={day.dateISO}
+                className={[
+                  'calendar-day',
+                  !day.isCurrentMonth ? 'other-month' : '',
+                  day.isToday ? 'today' : '',
+                  selectedCalendarDate === day.dateISO
+                  ? 'selected'
+                  : '',
+                ].filter(Boolean).join(' ')}
+                onClick={() => setSelectedCalendarDate(day.dateISO)}
+              >
+                <span>{day.date.getDate()}</span>
+
+                {day.followUps.length > 0 && (
+                  <span className="calendar-event-count">
+                    {day.followUps.length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="selected-date-followups">
+            <h3>
+              Follow-ups on{' '}
+              {new Date(`${selectedCalendarDate}T12:00:00`)
+              .toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </h3>
+
+            {selectedDateFollowUps.length > 0 ? (
+              selectedDateFollowUps.map((item) => (
+                <div className="followup-item" key={item.id}>
+                  <div className="followup-details">
+                    <strong>{item.company}</strong>
+                    <p>Follow up regarding {item.role}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="empty-message">
+                No follow-ups scheduled for this date.
+              </p>
+            )}
+          </div>
+
+          <div className="upcoming-followups">
+            <h3>Upcoming Follow-ups</h3>
+
+            {upcomingFollowUps.length > 0 ? (
+              upcomingFollowUps.map((item) => (
+                <div className="followup-item" key={item.id}>
+                  <div className="followup-details">
+                    <strong>{item.company}</strong>
+                    <p>Follow up regarding {item.role}</p>
+                  </div>
+
+                  <span className="followup-date">
+                    {new Date(`${item.followUpDate}T12:00:00`)
+                      .toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: '2-digit',
+                    })}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="empty-message">
+                No upcoming follow-ups. Add a follow-up date to an application.
+              </p>
+            )}
+          </div>
+        </section>
+
+
+        <footer className="footer">
+          HireTrack Â· Job Application Pipeline &amp; Career CRM
+        </footer>
+      </main>
+
+      <ApplicationForm
+        showForm={showForm}
+        form={form}
+        setForm={setForm}
+        editingId={editingId}
+        fileError={fileError}
+        isSaving={isSaving}
+        setSelectedResumeFile={setSelectedResumeFile}
+        setSelectedCoverLetterFile={setSelectedCoverLetterFile}
+        selectedOtherFiles={selectedOtherFiles}
+        setSelectedOtherFiles={setSelectedOtherFiles}
+        handleChange={handleChange}
+        handleSubmit={handleSubmit}
+        handleCancel={handleCancel}
+        handleDownloadFile={handleDownloadFile}
+        handleRemoveAttachment={handleRemoveAttachment}
+        validateFile={validateFile}
+        setFileError={setFileError}
+      />    </div>
+  )
+}
+
+export default App
+
+
+
+
+
+
