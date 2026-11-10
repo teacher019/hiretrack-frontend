@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   saveApplicationFile,
   getApplicationFile,
@@ -22,9 +22,7 @@ import {
   toApiApplication,
   fromApiApplication,
 } from './utils/applicationMapper'
-import {
-  loadAndMigrateApplications,
-} from './services/applicationSync'
+import { useApplications } from './hooks/useApplications'
 import {
   getTodayISODate,
   formatDateToISO,
@@ -46,28 +44,16 @@ function App() {
   )
 
   const [currentUsername, setCurrentUsername] = useState(getUsername)
+  const {
+    applications,
+    setApplications,
+    isDataReady,
+    setIsDataReady,
+    syncError,
+    setSyncError,
+    setSyncAttempt,
+  } = useApplications(authenticated, currentUsername)
 
-  const [applications, setApplications] = useState(() => {
-  const username = getUsername()
-
-    if (!isLoggedIn() || !username) {
-      return []
-    }
-
-    try {
-      const savedApplications = localStorage.getItem(
-        `hiretrack-applications-${username}`
-      )
-
-      return savedApplications ? JSON.parse(savedApplications) : []
-    } catch {
-      return []
-    }
-  })
-
-  const [isDataReady, setIsDataReady] = useState(false)
-  const [syncError, setSyncError] = useState('')
-  const [syncAttempt, setSyncAttempt] = useState(0)
 
   useEffect(() => {
     if (!authenticated || !currentUsername || !isDataReady) {
@@ -85,55 +71,7 @@ function App() {
     isDataReady,
   ])
     // Backend Fetch and LocalStorage Migration
-  useEffect(() => {
-    if (!authenticated || !currentUsername) {
-      return
-    }
 
-    let isActive = true
-
-    async function syncApplications() {
-      setIsDataReady(false)
-      setSyncError('')
-
-      try {
-        const savedData = localStorage.getItem(
-          `hiretrack-applications-${currentUsername}`
-        )
-
-        let localApplications = savedData
-          ? JSON.parse(savedData)
-          : []
-
-        if (!Array.isArray(localApplications)) {
-          throw new Error('Invalid local application data.')
-        }
-
-        const backendApplications =
-          await loadAndMigrateApplications(localApplications)
-
-        if (!isActive) return
-
-        setApplications(backendApplications)
-        setIsDataReady(true)
-
-      } catch (error) {
-        if (!isActive) return
-
-        console.error('Application sync failed:', error)
-
-        setSyncError(
-          error.message || 'Unable to synchronize applications.'
-        )
-      }
-    }
-
-    syncApplications()
-
-    return () => {
-      isActive = false
-    }
-  }, [authenticated, currentUsername, syncAttempt])
   const [calendarMonth, setCalendarMonth] = useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   )
@@ -753,7 +691,11 @@ async function handleEnableNotifications() {
 
               <button
                 type="button"
-                onClick={() => setSyncAttempt((previous) => previous + 1)}
+                onClick={() => {
+                  setIsDataReady(false)
+                  setSyncError('')
+                  setSyncAttempt((previous) => previous + 1)
+                }}
               >
                 Retry Sync
               </button>
@@ -940,7 +882,7 @@ async function handleEnableNotifications() {
           </div>
         </section>
 
-        
+
         <section className="content-card followup-card" id="followups">
           <div className="section-heading">
             <div>
