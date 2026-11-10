@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   saveApplicationFile,
   getApplicationFile,
@@ -10,6 +10,7 @@ import Login from './components/Login'
 import ApplicationForm from './components/ApplicationForm'
 import KanbanBoard from './components/KanbanBoard'
 import Dashboard from './components/Dashboard'
+import ApplicationsTable from './components/ApplicationsTable'
 import {
   isLoggedIn,
   logout,
@@ -768,95 +769,43 @@ async function handleEnableNotifications() {
           handleEdit={handleEdit}
           handleDelete={handleDelete}
         />
-        <section className="content-card" id="applications">
-          <div className="section-heading">
-            <div>
-              <h2>Recent Applications</h2>
-              <p>Keep track of your latest opportunities.</p>
-            </div>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => {
-                setPendingAttachmentDeletes([])
-                setSelectedResumeFile(null)
-                setSelectedCoverLetterFile(null)
-                setSelectedOtherFiles([])
-                setEditingId(null)
-                setForm({
-                company: '',
-                role: '',
-                jobUrl: '',
-                jobLocation: '',
-                jobType: 'Full-time',
-                salaryRange: '',
-                applicationSource: 'LinkedIn',
-                candidateName: '',
-                candidateEmail: '',
-                candidatePhone: '',
-                resumeVersion: 'Version 1',
-                resumeName: '',
-                resumeSize: '',
-                coverLetterName: '',
-                coverLetterSize: '',
-                otherAttachments: [],
-                status: 'Applied',
-                date: new Date().toISOString().slice(0, 10),
-                followUpDate: '',
-                notes: '',
-                })
-                setShowForm(true)
-              }}
-            >
-              + Add Application
-            </button>
-          </div>
 
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>COMPANY &amp; ROLE</th>
-                  <th>APPLIED DATE</th>
-                  <th>STATUS</th>
-                  <th>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {applications.map((application) => (
-                  <tr key={application.id}>
-                    <td>
-                      <strong>{application.company}</strong>
-                      <span className="role-name">{application.role}</span>
-                    </td>
-                    <td>{application.date}</td>
-                    <td>
-                      <span className={`status ${application.status.toLowerCase()}`}>
-                        {application.status}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        onClick={() => handleEdit(application)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="delete-button"
-                        type="button"
-                        onClick={() => handleDelete(application.id)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <ApplicationsTable
+          applications={applications}
+          onAddApplication={() => {
+          setPendingAttachmentDeletes([])
+          setSelectedResumeFile(null)
+          setSelectedCoverLetterFile(null)
+          setSelectedOtherFiles([])
+          setEditingId(null)
+            setForm({
+              company: '',
+              role: '',
+              jobUrl: '',
+              jobLocation: '',
+              jobType: 'Full-time',
+              salaryRange: '',
+              applicationSource: 'LinkedIn',
+              candidateName: '',
+              candidateEmail: '',
+              candidatePhone: '',
+              resumeVersion: 'Version 1',
+              resumeName: '',
+              resumeSize: '',
+              coverLetterName: '',
+              coverLetterSize: '',
+              otherAttachments: [],
+              status: 'Applied',
+              date: new Date().toISOString().slice(0, 10),
+              followUpDate: '',
+              notes: '',
+            })
+            setShowForm(true)
+          }}
+          handleEdit={handleEdit}
+          handleDelete={handleDelete}
+        />
+
 
 
         <section className="content-card followup-card" id="followups">
