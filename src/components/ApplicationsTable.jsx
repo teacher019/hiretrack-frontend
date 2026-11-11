@@ -1,4 +1,3 @@
-
 function ApplicationsTable({
   applications,
   onAddApplication,
