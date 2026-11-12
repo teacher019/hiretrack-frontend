@@ -1,9 +1,11 @@
-﻿const API_BASE_URL =
+const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api'
 
 const ACCESS_TOKEN_KEY = 'hiretrack-access-token'
 const REFRESH_TOKEN_KEY = 'hiretrack-refresh-token'
 const USERNAME_KEY = 'hiretrack-username'
+
+let refreshPromise = null
 
 // Read API response
 async function readResponse(response) {
@@ -47,33 +49,44 @@ export async function login(username, password) {
 }
 
 // JWT Token Refresh
-export async function refreshAccessToken() {
+// JWT Token Refresh (Single Request)
+export function refreshAccessToken() {
+  if (refreshPromise) {
+    return refreshPromise
+  }
+
   const refresh = localStorage.getItem(REFRESH_TOKEN_KEY)
 
-  if (!refresh) return null
+  if (!refresh) return Promise.resolve(null)
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/token/refresh/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refresh }),
-    })
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/token/refresh/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refresh }),
+      })
 
-    const data = await readResponse(response)
+      const data = await readResponse(response)
 
-    localStorage.setItem(ACCESS_TOKEN_KEY, data.access)
+      localStorage.setItem(ACCESS_TOKEN_KEY, data.access)
 
-    if (data.refresh) {
-      localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh)
+      if (data.refresh) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh)
+      }
+
+      return data.access
+    } catch {
+      logout()
+      return null
+    } finally {
+      refreshPromise = null
     }
+  })()
 
-    return data.access
-  } catch {
-    logout()
-    return null
-  }
+  return refreshPromise
 }
 
 // Logout
@@ -224,6 +237,3 @@ export function deleteFollowUp(id) {
     method: 'DELETE',
   })
 }
-
-
-

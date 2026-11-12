@@ -19,6 +19,9 @@ import {
   createApplication,
   updateApplication,
   deleteApplication,
+  uploadApplicationFiles,
+  uploadAttachment,
+  deleteAttachment,
 } from './services/api'
 
 import {
@@ -162,18 +165,57 @@ function handleChange(event) {
 
 async function handleDownloadFile(fileId) {
   try {
-    const record = await getApplicationFile(fileId)
+    const application = applications.find(
+      (item) => String(item.id) === String(editingId)
+    )
 
-    if (!record || !record.file) {
-      setFileError('File not found. Please upload it again.')
-      return
+    let fileUrl = ''
+    let fileName = ''
+
+    if (fileId.endsWith(':resume')) {
+      fileUrl = application?.resumeFileUrl || ''
+      fileName = application?.resumeName || 'resume'
+    } else if (fileId.endsWith(':coverLetter')) {
+      fileUrl = application?.coverLetterFileUrl || ''
+      fileName = application?.coverLetterName || 'cover-letter'
+    } else if (fileId.includes(':attachment:')) {
+      const attachmentId = fileId.split(':attachment:').pop()
+      const attachment = application?.otherAttachments?.find(
+        (item) => String(item.id) === String(attachmentId)
+      )
+
+      fileUrl = attachment?.fileUrl || ''
+      fileName = attachment?.name || 'attachment'
     }
 
-    const objectUrl = URL.createObjectURL(record.file)
+    let fileBlob = null
+
+    if (fileUrl) {
+      const response = await fetch(fileUrl)
+
+      if (response.ok) {
+        fileBlob = await response.blob()
+      }
+    }
+
+    // Fallback to IndexedDB when no Backend file is available
+    if (!fileBlob) {
+      const record = await getApplicationFile(fileId)
+
+      if (!record || !record.file) {
+        setFileError('File not found. Please upload it again.')
+        return
+      }
+
+      fileBlob = record.file
+      fileName = record.name || fileName
+    }
+
+    const objectUrl = URL.createObjectURL(fileBlob)
 
     const link = document.createElement('a')
     link.href = objectUrl
-    link.download = record.name
+    link.download = fileName
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -189,18 +231,24 @@ async function handleDownloadFile(fileId) {
   }
 }
 
-
 function handleRemoveAttachment(attachment) {
+
   const isNewFile = selectedOtherFiles.some(
     (file) => file.id === attachment.id
   )
 
-  // Mark only previously saved files for deletion.
+  // Track Backend and IndexedDB IDs separately
   if (editingId !== null && !isNewFile) {
     setPendingAttachmentDeletes((previous) =>
-      previous.includes(attachment.id)
+      previous.some((item) => item.localId === attachment.id)
         ? previous
-        : [...previous, attachment.id]
+        : [
+            ...previous,
+            {
+              backendId: attachment.backendId ?? null,
+              localId: attachment.id,
+            },
+          ]
     )
   }
 
@@ -277,9 +325,44 @@ async function handleSubmit(event) {
     })
 
     // Save application to Django Backend
-    const serverRecord = editingId !== null
+    let serverRecord = editingId !== null
       ? await updateApplication(existingApplication.backendId, apiData)
       : await createApplication(apiData)
+
+    // Upload Resume and Cover Letter to Django Backend
+    if (selectedResumeFile || selectedCoverLetterFile) {
+      serverRecord = await uploadApplicationFiles(serverRecord.id, {
+        resumeFile: selectedResumeFile,
+        coverLetterFile: selectedCoverLetterFile,
+      })
+    }
+
+    // Upload other attachments and preserve Backend IDs
+    const uploadedAttachmentRecords = []
+
+    for (const attachment of selectedOtherFiles) {
+      const uploaded = await uploadAttachment(
+        serverRecord.id,
+        attachment.file
+      )
+
+      uploadedAttachmentRecords.push({
+        localId: attachment.id,
+        backendId: uploaded.id,
+        fileUrl: uploaded.file || '',
+        name: uploaded.original_name || attachment.file.name,
+        size: `${(Number(uploaded.file_size || attachment.file.size) / 1024).toFixed(2)} KB`,
+        storage: 'backend',
+      })
+    }
+
+    // Delete removed Backend attachments
+
+    for (const attachment of pendingAttachmentDeletes) {
+      if (attachment.backendId !== null) {
+        await deleteAttachment(attachment.backendId)
+      }
+    }
 
     const mappedApplication = fromApiApplication(serverRecord)
 
@@ -289,6 +372,22 @@ async function handleSubmit(event) {
       id: applicationId,
       backendId: serverRecord.id,
       legacyId: serverRecord.legacy_id || String(applicationId),
+      otherAttachments: (applicationData.otherAttachments || []).map(
+        (item) => {
+          const uploaded = uploadedAttachmentRecords.find(
+            (record) => record.localId === item.id
+          )
+
+          return uploaded
+            ? {
+                ...item,
+                backendId: uploaded.backendId,
+                fileUrl: uploaded.fileUrl,
+                storage: uploaded.storage,
+              }
+            : item
+        }
+      ),
     }
 
     // Update React state after successful API response
@@ -347,20 +446,22 @@ async function handleSubmit(event) {
           updatedAt: new Date().toISOString(),
         })
       }
-      // Delete previously saved attachments removed during editing
-      for (const attachmentId of pendingAttachmentDeletes) {
+      // Delete previously saved IndexedDB attachments
+      for (const attachment of pendingAttachmentDeletes) {
         await deleteApplicationFile(
-          `${applicationId}:attachment:${attachmentId}`
+          `${applicationId}:attachment:${attachment.localId}`
         )
       }
 
         // Clear pending deletion list after successful cleanup
       setPendingAttachmentDeletes([])
     } catch (fileError) {
+      console.error('ATTACHMENT UPLOAD ERROR:', fileError)
       console.error('Local file storage error:', fileError)
       setFileError(
         'Application saved to server, but a local file could not be saved.'
       )
+
     }
 
     // Reset form
@@ -723,9 +824,9 @@ async function handleEnableNotifications() {
         <h2 className="brand">HireTrack<span>.</span></h2>
         <p className="menu-label">WORKSPACE</p>
         <nav className="navigation">
-          <a className="nav-link active" href="#dashboard">â–¦ Dashboard</a>
-          <a className="nav-link" href="#applications">â–¤ Applications</a>
-          <a className="nav-link" href="#followups">â—· Follow-ups</a>
+          <a className="nav-link active" href="#dashboard">Ã¢â€“Â¦ Dashboard</a>
+          <a className="nav-link" href="#applications">Ã¢â€“Â¤ Applications</a>
+          <a className="nav-link" href="#followups">Ã¢â€”Â· Follow-ups</a>
         </nav>
         <div className="sidebar-bottom">
           <div className="avatar">
@@ -740,7 +841,7 @@ async function handleEnableNotifications() {
               type="button"
               onClick={handleLogout}
             >
-              <span>↪</span> Logout
+              <span>â†ª</span> Logout
             </button>
           </div>
         </div>
@@ -823,7 +924,7 @@ async function handleEnableNotifications() {
         />
 
         <footer className="footer">
-          HireTrack Â· Job Application Pipeline &amp; Career CRM
+          HireTrack Ã‚Â· Job Application Pipeline &amp; Career CRM
         </footer>
       </main>
 

@@ -1,4 +1,4 @@
-﻿function toISODate(value) {
+function toISODate(value) {
   if (!value) return null
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
@@ -79,8 +79,10 @@ export function fromApiApplication(application) {
     candidatePhone: application.candidate_phone || '',
     resumeVersion: application.resume_version || '',
     resumeName: getFileName(application.resume_file),
+    resumeFileUrl: application.resume_file || '',
     resumeSize: '',
     coverLetterName: getFileName(application.cover_letter_file),
+    coverLetterFileUrl: application.cover_letter_file || '',
     coverLetterSize: '',
     otherAttachments: [],
     followUpDate: '',

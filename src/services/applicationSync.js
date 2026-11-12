@@ -1,6 +1,7 @@
-﻿import {
+import {
   getApplications,
   createApplication,
+  getAttachments,
 } from './api'
 
 import {
@@ -16,6 +17,16 @@ function getApplicationList(response) {
   }
 
   throw new Error('Invalid applications API response.')
+}
+
+function getAttachmentList(response) {
+  if (Array.isArray(response)) return response
+
+  if (Array.isArray(response?.results)) {
+    return response.results
+  }
+
+  throw new Error('Invalid attachments API response.')
 }
 
 export async function loadAndMigrateApplications(localApplications = []) {
@@ -61,6 +72,31 @@ export async function loadAndMigrateApplications(localApplications = []) {
     )
   }
 
+  // Load current user's Backend attachments
+  const serverAttachments = getAttachmentList(
+    await getAttachments()
+  )
+
+  // Group Backend attachments by application ID
+  const attachmentsByApplication = new Map()
+
+  for (const attachment of serverAttachments) {
+    const applicationKey = String(attachment.application)
+
+    if (!attachmentsByApplication.has(applicationKey)) {
+      attachmentsByApplication.set(applicationKey, [])
+    }
+
+    attachmentsByApplication.get(applicationKey).push({
+      id: attachment.id,
+      backendId: attachment.id,
+      name: attachment.original_name || '',
+      size: `${(Number(attachment.file_size || 0) / 1024).toFixed(2)} KB`,
+      fileUrl: attachment.file || '',
+      storage: 'backend',
+    })
+  }
+
   // Preserve local file metadata and IndexedDB-linked IDs
   const localByLegacyId = new Map(
     localApplications.map((application) => [
@@ -75,18 +111,30 @@ export async function loadAndMigrateApplications(localApplications = []) {
       ? localByLegacyId.get(String(application.legacy_id))
       : null
 
-    if (!local) return mapped
+    const backendAttachments =
+      attachmentsByApplication.get(String(application.id)) || []
+
+    const localAttachments = local?.otherAttachments || []
+
+    const unmatchedLocalAttachments = localAttachments.filter(
+      (localFile) => !backendAttachments.some(
+        (backendFile) => backendFile.name === localFile.name
+      )
+    )
 
     return {
       ...local,
       ...mapped,
-      resumeName: mapped.resumeName || local.resumeName || '',
-      resumeSize: local.resumeSize || '',
+      resumeName: mapped.resumeName || local?.resumeName || '',
+      resumeSize: local?.resumeSize || '',
       coverLetterName:
-        mapped.coverLetterName || local.coverLetterName || '',
-      coverLetterSize: local.coverLetterSize || '',
-      otherAttachments: local.otherAttachments || [],
-      followUpDate: local.followUpDate || '',
+        mapped.coverLetterName || local?.coverLetterName || '',
+      coverLetterSize: local?.coverLetterSize || '',
+      otherAttachments: [
+        ...backendAttachments,
+        ...unmatchedLocalAttachments,
+      ],
+      followUpDate: local?.followUpDate || '',
     }
   })
 
