@@ -237,3 +237,33 @@ export function deleteFollowUp(id) {
     method: 'DELETE',
   })
 }
+
+
+// Notification APIs
+export function getNotifications() {
+  return apiRequest('/notifications/')
+}
+
+export function syncNotifications() {
+  return apiRequest('/notifications/sync/', {
+    method: 'POST',
+  })
+}
+
+export function markNotificationRead(id) {
+  return apiRequest(`/notifications/${id}/read/`, {
+    method: 'PATCH',
+    body: {
+      is_read: true,
+    },
+  })
+}
+
+export function markNotificationUnread(id) {
+  return apiRequest(`/notifications/${id}/read/`, {
+    method: 'PATCH',
+    body: {
+      is_read: false,
+    },
+  })
+}

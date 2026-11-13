@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import {
   saveApplicationFile,
   getApplicationFile,
@@ -12,23 +12,30 @@ import KanbanBoard from './components/KanbanBoard'
 import Dashboard from './components/Dashboard'
 import ApplicationsTable from './components/ApplicationsTable'
 import FollowUpCalendar from './components/FollowUpCalendar'
+
 import {
-  isLoggedIn,
-  logout,
-  getUsername,
   createApplication,
   updateApplication,
   deleteApplication,
   uploadApplicationFiles,
   uploadAttachment,
   deleteAttachment,
+  getFollowUps,
+  createFollowUp,
+  updateFollowUp,
+  deleteFollowUp,
+  syncNotifications,
+  markNotificationRead,
+  markNotificationUnread,
 } from './services/api'
+
 
 import {
   toApiApplication,
   fromApiApplication,
 } from './utils/applicationMapper'
 import { useApplications } from './hooks/useApplications'
+import useAuth from './hooks/useAuth'
 import {
   getTodayISODate,
   formatDateToISO,
@@ -45,11 +52,16 @@ const applicationStatuses = [
 
 
 function App() {
-    const [authenticated, setAuthenticated] = useState(
-    () => isLoggedIn() && Boolean(getUsername())
-  )
-
-  const [currentUsername, setCurrentUsername] = useState(getUsername)
+  const {
+    authenticated,
+    currentUsername,
+    handleLoginSuccess: authLoginSuccess,
+    handleLogout: authLogout,
+  } = useAuth()
+    // Backend Notifications
+  const [notifications, setNotifications] = useState([])
+  const [notificationError, setNotificationError] = useState('')
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(false)
   const {
     applications,
     setApplications,
@@ -59,8 +71,6 @@ function App() {
     setSyncError,
     setSyncAttempt,
   } = useApplications(authenticated, currentUsername)
-
-
   useEffect(() => {
     if (!authenticated || !currentUsername || !isDataReady) {
       return
@@ -101,6 +111,7 @@ function App() {
   const [pendingAttachmentDeletes, setPendingAttachmentDeletes] = useState([])
   const [fileError, setFileError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [showNotificationPanel, setShowNotificationPanel] = useState(false)
   const [form, setForm] = useState({
   company: '',
   role: '',
@@ -406,6 +417,57 @@ async function handleSubmit(event) {
       ])
     }
 
+
+    // Synchronize Follow-up with Django Backend
+    try {
+
+      const followUpResponse = await getFollowUps()
+
+      const backendFollowUps = Array.isArray(followUpResponse)
+        ? followUpResponse
+        : followUpResponse?.results || []
+
+      const existingFollowUps = backendFollowUps.filter(
+        (item) =>
+          String(item.application) === String(serverRecord.id)
+      )
+
+      if (applicationData.followUpDate) {
+        if (existingFollowUps.length > 0) {
+          // Update the existing Follow-up
+          const existingFollowUp = existingFollowUps[0]
+
+          await updateFollowUp(existingFollowUp.id, {
+            follow_up_date: applicationData.followUpDate,
+          })
+
+          // Remove accidental duplicates, if any
+          for (const duplicate of existingFollowUps.slice(1)) {
+            await deleteFollowUp(duplicate.id)
+          }
+        } else {
+          // Create a new Follow-up
+          await createFollowUp({
+            application: serverRecord.id,
+            follow_up_date: applicationData.followUpDate,
+            notes: '',
+          })
+        }
+      } else {
+        // Delete Follow-ups when the date is cleared
+        for (const followUp of existingFollowUps) {
+          await deleteFollowUp(followUp.id)
+        }
+      }
+    } catch (followUpError) {
+      console.error('Follow-up synchronization error:', followUpError)
+
+      setFileError(
+        'Application saved, but Follow-up synchronization failed. Please retry.'
+      )
+    }
+
+
     // Save selected files locally in IndexedDB
     try {
       if (selectedResumeFile) {
@@ -643,18 +705,76 @@ async function handleStatusChange(id, nextStatus) {
   }
 }
 
+async function handleToggleFollowUpCompleted(application) {
+  if (!application.followUpId) {
+    setFileError(
+      'Follow-up ID not found. Please reload and try again.'
+    )
+    return
+  }
 
-  const interviewCount = applications.filter((item) => item.status === 'Interview').length
-  const offerCount = applications.filter((item) => item.status === 'Offer').length
-  const localToday = getTodayISODate()
+  const nextCompleted = !application.followUpCompleted
 
-  const upcomingFollowUps = applications.filter(
+  try {
+    // Save Completed status to Django Backend
+    const updatedFollowUp = await updateFollowUp(
+      application.followUpId,
+      {
+        completed: nextCompleted,
+      }
+    )
+
+    // Update React state after successful API response
+    setApplications((previous) =>
+      previous.map((item) =>
+        String(item.id) === String(application.id)
+          ? {
+              ...item,
+              followUpCompleted:
+                updatedFollowUp?.completed ?? nextCompleted,
+            }
+          : item
+      )
+    )
+
+    setFileError('')
+  } catch (error) {
+    console.error('Follow-up completion update error:', error)
+
+    setFileError(
+      error.message || 'Unable to update follow-up completion.'
+    )
+  }
+}
+
+const interviewCount = applications.filter((item) => item.status === 'Interview').length
+const offerCount = applications.filter((item) => item.status === 'Offer').length
+
+const localToday = getTodayISODate()
+
+const upcomingFollowUps = applications.filter(
   (item) =>
     item.followUpDate &&
-    item.followUpDate >= localToday
-  )
+    item.followUpDate >= localToday &&
+    !item.followUpCompleted
+)
+
+const overdueFollowUps = applications.filter(
+  (item) =>
+    item.followUpDate &&
+    item.followUpDate < localToday &&
+    !item.followUpCompleted
+)
+
+const completedFollowUps = applications.filter(
+  (item) =>
+    item.followUpDate &&
+    item.followUpCompleted
+)
 
   const followUpCount = upcomingFollowUps.length
+  const overdueFollowUpCount = overdueFollowUps.length
+
   const calendarDays = Array.from({ length: 42 }, (_, index) => {
   const firstDay = calendarMonth.getDay()
 
@@ -753,28 +873,101 @@ async function handleEnableNotifications() {
 
   return () => window.clearInterval(intervalId)
 }, [applications, notificationPermission])
-  const handleLoginSuccess = () => {
-    const username = getUsername()
 
-    if (!username) return
+  useEffect(() => {
+    if (!authenticated || !currentUsername || !isDataReady) {
+      return undefined
+    }
 
-    setIsDataReady(false)
-    setSyncError('')
-    setCurrentUsername(username)
-    setAuthenticated(true)
+    let isActive = true
+
+    async function loadNotifications() {
+      setIsLoadingNotifications(true)
+      setNotificationError('')
+
+      try {
+        const data = await syncNotifications()
+
+        if (isActive) {
+          setNotifications(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        console.error('Notification sync error:', error)
+
+        if (isActive) {
+          setNotificationError(
+            error.message || 'Unable to load notifications.'
+          )
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingNotifications(false)
+        }
+      }
+    }
+
+    loadNotifications()
+
+    return () => {
+      isActive = false
+    }
+  }, [authenticated, currentUsername, isDataReady, applications])
+
+  async function handleMarkNotificationRead(notification) {
+    try {
+      const updated = await markNotificationRead(notification.id)
+
+      setNotifications((previous) =>
+        previous.map((item) =>
+          item.id === notification.id ? updated : item
+        )
+      )
+
+      setNotificationError('')
+    } catch (error) {
+      console.error('Mark notification read error:', error)
+      setNotificationError(
+        error.message || 'Unable to mark notification as read.'
+      )
+    }
   }
 
-  const handleLogout = () => {
-    logout()
+  async function handleMarkNotificationUnread(notification) {
+    try {
+      const updated = await markNotificationUnread(notification.id)
 
-    setIsDataReady(false)
-    setSyncError('')
-    setSyncAttempt(0)
+      setNotifications((previous) =>
+        previous.map((item) =>
+          item.id === notification.id ? updated : item
+        )
+      )
 
-    setAuthenticated(false)
-    setCurrentUsername('')
-    setApplications([])
+      setNotificationError('')
+    } catch (error) {
+      console.error('Mark notification unread error:', error)
+      setNotificationError(
+        error.message || 'Unable to mark notification as unread.'
+      )
+    }
   }
+  const unreadNotificationCount = notifications.filter(
+  (notification) => !notification.is_read
+).length
+
+ const handleLoginSuccess = () => {
+  setIsDataReady(false)
+  setSyncError('')
+  authLoginSuccess()
+}
+
+const handleLogout = () => {
+  authLogout()
+
+  setIsDataReady(false)
+  setSyncError('')
+  setSyncAttempt(0)
+  setApplications([])
+}
 
   if (!authenticated) {
     return <Login onLoginSuccess={handleLoginSuccess} />
@@ -848,20 +1041,131 @@ async function handleEnableNotifications() {
       </aside>
 
       <main className="main-content" id="dashboard">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">YOUR CAREER WORKSPACE</p>
-            <h1>Dashboard</h1>
-          </div>
-          <button className="profile-button" type="button">AK</button>
-        </header>
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">YOUR CAREER WORKSPACE</p>
+          <h1>Dashboard</h1>
+        </div>
 
-        <Dashboard
+        <div className="topbar-actions">
+          <button
+            className="notification-bell"
+            type="button"
+            aria-label={`Notifications: ${unreadNotificationCount} unread`}
+            aria-expanded={showNotificationPanel}
+            onClick={() =>
+            setShowNotificationPanel((previous) => !previous)
+            }
+          >
+            <span aria-hidden="true">🔔</span>
+
+            {unreadNotificationCount > 0 && (
+              <span className="notification-badge">
+                {unreadNotificationCount > 99
+                ? '99+'
+                : unreadNotificationCount}
+              </span>
+            )}
+          </button>
+
+          <button className="profile-button" type="button">AK</button>
+        </div>
+
+      </header>
+
+      {showNotificationPanel && (
+        <section className="notification-panel">
+          <div className="notification-panel-header">
+            <h2>Notifications</h2>
+            <span>{unreadNotificationCount} unread</span>
+          </div>
+
+          {isLoadingNotifications && (
+            <p>Loading notifications...</p>
+          )}
+
+          {notificationError && (
+            <p className="notification-error">
+              {notificationError}
+            </p>
+          )}
+
+          {!isLoadingNotifications && notifications.length === 0 && (
+            <p className="notification-empty">
+              No notifications yet.
+            </p>
+          )}
+
+          <div className="notification-list">
+            {notifications.map((notification) => (
+              <article
+                className={`notification-item ${
+                  notification.is_read ? 'read' : 'unread'
+                }`}
+                key={notification.id}
+              >
+                <div className="notification-item-content">
+                  <strong>{notification.title}</strong>
+
+                  <p>{notification.message}</p>
+
+                  <small>
+                    {notification.company} — {notification.role}
+                  </small>
+
+                  <small>
+                    Follow-up: {notification.follow_up_date}
+                  </small>
+                </div>
+
+                <div className="notification-item-actions">
+                  {notification.is_read ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleMarkNotificationUnread(notification)
+                      }
+                    >
+                      Mark Unread
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleMarkNotificationRead(notification)
+                      }
+                    >
+                      Mark Read
+                    </button>
+                  )}
+
+                  <a
+                    href="#applications"
+                    onClick={() => setShowNotificationPanel(false)}
+                  >
+                    View Application
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <Dashboard
+
           applications={applications}
           interviewCount={interviewCount}
           offerCount={offerCount}
           followUpCount={followUpCount}
+          upcomingFollowUps={upcomingFollowUps}
+          overdueFollowUps={overdueFollowUps}
+          overdueFollowUpCount={overdueFollowUpCount}
+          completedFollowUps={completedFollowUps}
+          onToggleFollowUpCompleted={handleToggleFollowUpCompleted}
+          today={localToday}
         />
+
 
         <KanbanBoard
           applications={applications}
