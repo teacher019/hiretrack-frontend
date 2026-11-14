@@ -1043,9 +1043,9 @@ const handleLogout = () => {
         <h2 className="brand">HireTrack<span>.</span></h2>
         <p className="menu-label">WORKSPACE</p>
         <nav className="navigation">
-          <a className="nav-link active" href="#dashboard">Ã¢â€“Â¦ Dashboard</a>
-          <a className="nav-link" href="#applications">Ã¢â€“Â¤ Applications</a>
-          <a className="nav-link" href="#followups">Ã¢â€”Â· Follow-ups</a>
+          <a className="nav-link active" href="#dashboard">{"\u25A6"} Dashboard</a>
+          <a className="nav-link" href="#applications">{"\u25A4"} Applications</a>
+          <a className="nav-link" href="#followups">{"\u2027"} Follow-ups</a>
         </nav>
         <div className="sidebar-bottom">
           <div className="avatar">
@@ -1060,7 +1060,7 @@ const handleLogout = () => {
               type="button"
               onClick={handleLogout}
             >
-              <span>â†ª</span> Logout
+             <span>{"\u21AA"}</span> Logout
             </button>
           </div>
         </div>
@@ -1254,7 +1254,7 @@ const handleLogout = () => {
         />
 
         <footer className="footer">
-          HireTrack Ã‚Â· Job Application Pipeline &amp; Career CRM
+          HireTrack {"\u00B7"} Job Application Pipeline &amp; Career CRM
         </footer>
       </main>
 

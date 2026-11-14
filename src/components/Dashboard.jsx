@@ -38,7 +38,7 @@ function Dashboard({
           <h2>Keep your career moving forward.</h2>
           <p>Track your job applications and never miss a follow-up.</p>
         </div>
-        <span className="welcome-icon">Ã¢â€ â€™</span>
+        <span className="welcome-icon">{"\u2192"}</span>
       </section>
 
       <section className="summary-grid">
