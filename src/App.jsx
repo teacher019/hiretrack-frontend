@@ -20,6 +20,7 @@ import {
   uploadApplicationFiles,
   uploadAttachment,
   deleteAttachment,
+  downloadFile,
   getFollowUps,
   createFollowUp,
   updateFollowUp,
@@ -174,44 +175,68 @@ function handleChange(event) {
     setForm((previous) => ({ ...previous, [name]: value }))
   }
 
+
 async function handleDownloadFile(fileId) {
   try {
     const application = applications.find(
       (item) => String(item.id) === String(editingId)
     )
 
-    let fileUrl = ''
+    if (!application) {
+      setFileError('Application not found.')
+      return
+    }
+
+    let downloadPath = ''
     let fileName = ''
+    let localFileId = fileId
 
     if (fileId.endsWith(':resume')) {
-      fileUrl = application?.resumeFileUrl || ''
-      fileName = application?.resumeName || 'resume'
+      fileName = application.resumeName || 'resume'
+      downloadPath = application.backendId
+        ? `/applications/${application.backendId}/download-resume/`
+        : ''
     } else if (fileId.endsWith(':coverLetter')) {
-      fileUrl = application?.coverLetterFileUrl || ''
-      fileName = application?.coverLetterName || 'cover-letter'
+      fileName = application.coverLetterName || 'cover-letter'
+      downloadPath = application.backendId
+        ? `/applications/${application.backendId}/download-cover-letter/`
+        : ''
     } else if (fileId.includes(':attachment:')) {
       const attachmentId = fileId.split(':attachment:').pop()
-      const attachment = application?.otherAttachments?.find(
+
+      const attachment = application.otherAttachments?.find(
         (item) => String(item.id) === String(attachmentId)
       )
 
-      fileUrl = attachment?.fileUrl || ''
       fileName = attachment?.name || 'attachment'
+
+      const backendAttachmentId =
+        attachment?.backendId || attachment?.id
+
+      if (attachment?.storage === 'backend' && backendAttachmentId) {
+        downloadPath = `/attachments/${backendAttachmentId}/download/`
+      }
     }
 
     let fileBlob = null
 
-    if (fileUrl) {
-      const response = await fetch(fileUrl)
+    // Download Backend files using JWT authentication
+    if (downloadPath) {
+      try {
+        fileBlob = await downloadFile(downloadPath)
+      } catch (error) {
+        console.error('Backend file download error:', error)
 
-      if (response.ok) {
-        fileBlob = await response.blob()
+        // Only use IndexedDB fallback when the Backend file is missing.
+        if (error.status !== 404) {
+          throw error
+        }
       }
     }
 
-    // Fallback to IndexedDB when no Backend file is available
+    // Fallback to IndexedDB for locally stored files
     if (!fileBlob) {
-      const record = await getApplicationFile(fileId)
+      const record = await getApplicationFile(localFileId)
 
       if (!record || !record.file) {
         setFileError('File not found. Please upload it again.')
@@ -241,6 +266,7 @@ async function handleDownloadFile(fileId) {
     setFileError('Unable to download file. Please try again.')
   }
 }
+
 
 function handleRemoveAttachment(attachment) {
 

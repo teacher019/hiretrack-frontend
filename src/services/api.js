@@ -146,6 +146,49 @@ export async function apiRequest(path, options = {}) {
   return readResponse(response)
 }
 
+// Authenticated File Download (Blob)
+export async function downloadFile(path) {
+  const sendRequest = async (token) => {
+    const headers = {}
+
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+    }
+
+    return fetch(`${API_BASE_URL}${path}`, {
+      method: 'GET',
+      headers,
+    })
+  }
+
+  let token = localStorage.getItem(ACCESS_TOKEN_KEY)
+  let response = await sendRequest(token)
+
+  if (response.status === 401 && token) {
+    const newToken = await refreshAccessToken()
+
+    if (newToken) {
+      response = await sendRequest(newToken)
+    }
+  }
+
+  if (!response.ok) {
+    let message = `File download failed: ${response.status}`
+
+    try {
+      const data = await response.json()
+      message = data.detail || message
+    } catch {
+      // Keep the default error message
+    }
+
+    const error = new Error(message)
+      error.status = response.status
+      throw error
+    }
+
+  return response.blob()
+}
 // Application APIs
 export function getApplications() {
   return apiRequest('/applications/')
