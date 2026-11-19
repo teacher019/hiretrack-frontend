@@ -53,7 +53,7 @@
                   >
                   <div className="kanban-card-top">
                     <strong>{application.company}</strong>
-                    <span className="drag-indicator">â ¿</span>
+                    <span className="drag-indicator">⠿</span>
                   </div>
 
                   <p>{application.role}</p>
@@ -115,4 +115,5 @@
 
   )
 }
+
 
