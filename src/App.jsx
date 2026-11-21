@@ -106,6 +106,7 @@ function App() {
       : 'unsupported'
   )
   const [showForm, setShowForm] = useState(false)
+  const [activePage, setActivePage] = useState('dashboard')
   const [editingId, setEditingId] = useState(null)
   // Actual files selected by the user
   const [selectedResumeFile, setSelectedResumeFile] = useState(null)
@@ -137,6 +138,40 @@ function App() {
   followUpDate: '',
   notes: '',
 })
+function handleAddApplication() {
+  setPendingAttachmentDeletes([])
+  setSelectedResumeFile(null)
+  setSelectedCoverLetterFile(null)
+  setSelectedOtherFiles([])
+  setFileError('')
+  setEditingId(null)
+
+  setForm({
+    company: '',
+    role: '',
+    jobUrl: '',
+    jobLocation: '',
+    jobType: 'Full-time',
+    salaryRange: '',
+    applicationSource: 'LinkedIn',
+    candidateName: '',
+    candidateEmail: '',
+    candidatePhone: '',
+    resumeVersion: 'Version 1',
+    resumeName: '',
+    resumeSize: '',
+    coverLetterName: '',
+    coverLetterSize: '',
+    otherAttachments: [],
+    status: 'Applied',
+    date: getTodayISODate(),
+    followUpDate: '',
+    notes: '',
+  })
+
+  setShowForm(true)
+  setActivePage('add-application')
+}
 function handleEdit(application) {
   setPendingAttachmentDeletes([])
   setSelectedResumeFile(null)
@@ -171,6 +206,7 @@ function handleEdit(application) {
   })
 
   setShowForm(true)
+  setActivePage('add-application')
 }
 function handleChange(event) {
     const { name, value } = event.target
@@ -584,6 +620,7 @@ async function handleSubmit(event) {
     setSelectedCoverLetterFile(null)
     setSelectedOtherFiles([])
     setShowForm(false)
+    setActivePage('applications')
 
   } catch (error) {
     console.error('Application API error:', error)
@@ -648,6 +685,7 @@ function handleCancel() {
   setSelectedResumeFile(null)
   setSelectedCoverLetterFile(null)
   setSelectedOtherFiles([])
+  setActivePage('applications')
   setFileError('')
 }
 
@@ -1059,9 +1097,37 @@ if (!authenticated) {
         <h2 className="brand">HireTrack<span>.</span></h2>
         <p className="menu-label">WORKSPACE</p>
         <nav className="navigation">
-          <a className="nav-link active" href="#dashboard">{"\u25A6"} Dashboard</a>
-          <a className="nav-link" href="#applications">{"\u25A4"} Applications</a>
-          <a className="nav-link" href="#followups">{"\u2027"} Follow-ups</a>
+          <button
+            type="button"
+            className={`nav-link ${activePage === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActivePage('dashboard')}
+          >
+            {"\u25A6"} Dashboard
+          </button>
+
+          <button
+            type="button"
+            className={`nav-link ${activePage === 'applications' ? 'active' : ''}`}
+            onClick={() => setActivePage('applications')}
+          >
+            {"\u25A4"} Applications
+          </button>
+
+          <button
+            type="button"
+            className={`nav-link ${activePage === 'add-application' ? 'active' : ''}`}
+            onClick={handleAddApplication}
+          >
+            + Add Application
+          </button>
+
+          <button
+            type="button"
+            className={`nav-link ${activePage === 'followups' ? 'active' : ''}`}
+            onClick={() => setActivePage('followups')}
+          >
+            {"\u2027"} Follow-ups
+          </button>
         </nav>
         <div className="sidebar-bottom">
           <div className="avatar">
@@ -1086,7 +1152,17 @@ if (!authenticated) {
       <header className="topbar">
         <div>
           <p className="eyebrow">YOUR CAREER WORKSPACE</p>
-          <h1>Dashboard</h1>
+          <h1>
+            {activePage === 'dashboard'
+              ? 'Dashboard'
+              : activePage === 'applications'
+              ? 'Applications'
+              : activePage === 'add-application'
+              ? editingId !== null
+              ? 'Edit Application'
+              : 'Add Application'
+              : 'Follow-ups'}
+          </h1>
         </div>
 
         <div className="topbar-actions">
@@ -1193,9 +1269,9 @@ if (!authenticated) {
           </div>
         </section>
       )}
-
-      <Dashboard
-
+      {activePage === 'dashboard' && (
+        <>
+        <Dashboard
           applications={applications}
           interviewCount={interviewCount}
           offerCount={offerCount}
@@ -1208,7 +1284,8 @@ if (!authenticated) {
           today={localToday}
         />
 
-
+        
+      
         <KanbanBoard
           applications={applications}
           applicationStatuses={applicationStatuses}
@@ -1217,46 +1294,22 @@ if (!authenticated) {
           handleEdit={handleEdit}
           handleDelete={handleDelete}
         />
-
-        <ApplicationsTable
+          </>
+        )}
+        {activePage === 'applications' && (
+          <>
+          <ApplicationsTable
           applications={applications}
-          onAddApplication={() => {
-          setPendingAttachmentDeletes([])
-          setSelectedResumeFile(null)
-          setSelectedCoverLetterFile(null)
-          setSelectedOtherFiles([])
-          setEditingId(null)
-            setForm({
-              company: '',
-              role: '',
-              jobUrl: '',
-              jobLocation: '',
-              jobType: 'Full-time',
-              salaryRange: '',
-              applicationSource: 'LinkedIn',
-              candidateName: '',
-              candidateEmail: '',
-              candidatePhone: '',
-              resumeVersion: 'Version 1',
-              resumeName: '',
-              resumeSize: '',
-              coverLetterName: '',
-              coverLetterSize: '',
-              otherAttachments: [],
-              status: 'Applied',
-              date: new Date().toISOString().slice(0, 10),
-              followUpDate: '',
-              notes: '',
-            })
-            setShowForm(true)
-          }}
+          onAddApplication={handleAddApplication}
           handleEdit={handleEdit}
           handleDelete={handleDelete}
         />
+          </>
+        )}
+        {activePage === 'followups' && (
+          <>
 
-
-
-        <FollowUpCalendar
+          <FollowUpCalendar
           notificationPermission={notificationPermission}
           handleEnableNotifications={handleEnableNotifications}
           calendarMonth={calendarMonth}
@@ -1267,14 +1320,10 @@ if (!authenticated) {
           setSelectedCalendarDate={setSelectedCalendarDate}
           selectedDateFollowUps={selectedDateFollowUps}
           upcomingFollowUps={upcomingFollowUps}
-        />
-
-        <footer className="footer">
-          HireTrack {"\u00B7"} Job Application Pipeline &amp; Career CRM
-        </footer>
-      </main>
-
-      <ApplicationForm
+          />
+          </>
+        )}
+        <ApplicationForm
         showForm={showForm}
         form={form}
         setForm={setForm}
@@ -1292,7 +1341,12 @@ if (!authenticated) {
         handleRemoveAttachment={handleRemoveAttachment}
         validateFile={validateFile}
         setFileError={setFileError}
-      />    </div>
+        />  
+        <footer className="footer">
+          HireTrack {"\u00B7"} Job Application Pipeline &amp; Career CRM
+        </footer>
+      </main>  
+    </div>
   )
 }
 

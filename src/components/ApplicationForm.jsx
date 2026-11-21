@@ -19,15 +19,8 @@
 }) {
   if (!showForm) return null
 
-  return (
-        <div className="modal-backdrop" onClick={handleCancel}>
-          <section
-            className="application-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="form-title"
-            onClick={(event) => event.stopPropagation()}
-          >
+    return (
+    <section className="application-page" aria-labelledby="form-title">
             <div className="modal-heading">
               <div>
                 <p className="eyebrow">CAREER WORKSPACE</p>
@@ -42,7 +35,7 @@
                 aria-label="Close form"
                 onClick={handleCancel}
               >
-                Ã—
+                {'\u00D7'}
               </button>
             </div>
 
@@ -462,7 +455,6 @@
               </div>
             </form>
           </section>
-        </div>
   )
 }
 
