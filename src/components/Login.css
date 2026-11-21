@@ -84,3 +84,17 @@
   color: #b83d4b;
   font-size: 14px;
 }
+.login-link {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: #326de0 !important;
+  font-size: 14px !important;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-link:hover {
+  text-decoration: underline;
+}

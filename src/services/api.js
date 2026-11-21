@@ -47,7 +47,23 @@ export async function login(username, password) {
 
   return data
 }
+// User Registration
+export async function register(username, email, password, confirm_password) {
+  const response = await fetch(`${API_BASE_URL}/register/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      username,
+      email,
+      password,
+      confirm_password,
+    }),
+  })
 
+  return readResponse(response)
+}
 // JWT Token Refresh
 // JWT Token Refresh (Single Request)
 export function refreshAccessToken() {

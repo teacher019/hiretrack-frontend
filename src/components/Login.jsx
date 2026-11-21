@@ -2,7 +2,7 @@
 import { login } from '../services/api'
 import './Login.css'
 
-function Login({ onLoginSuccess }) {
+function Login({ onLoginSuccess, onShowSignup }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -61,6 +61,16 @@ function Login({ onLoginSuccess }) {
             {isLoading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
+        <p className="login-subtitle">
+          Don't have an account?{' '}
+          <button
+            type="button"
+            className="login-link"
+            onClick={onShowSignup}
+          >
+            Sign Up
+          </button>
+        </p>
       </div>
     </div>
   )

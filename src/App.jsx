@@ -7,6 +7,7 @@ import {
 } from './utils/fileStorage'
 import './App.css'
 import Login from './components/Login'
+import Signup from './components/Signup'
 import ApplicationForm from './components/ApplicationForm'
 import KanbanBoard from './components/KanbanBoard'
 import Dashboard from './components/Dashboard'
@@ -53,6 +54,7 @@ const applicationStatuses = [
 
 
 function App() {
+  const [showSignup, setShowSignup] = useState(false)
   const {
     authenticated,
     currentUsername,
@@ -995,9 +997,23 @@ const handleLogout = () => {
   setApplications([])
 }
 
-  if (!authenticated) {
-    return <Login onLoginSuccess={handleLoginSuccess} />
+if (!authenticated) {
+  if (showSignup) {
+    return (
+      <Signup
+        onSignupSuccess={() => setShowSignup(false)}
+        onBackToLogin={() => setShowSignup(false)}
+      />
+    )
   }
+
+  return (
+    <Login
+      onLoginSuccess={handleLoginSuccess}
+      onShowSignup={() => setShowSignup(true)}
+    />
+  )
+}
   if (!isDataReady) {
     return (
       <div className="login-page">
